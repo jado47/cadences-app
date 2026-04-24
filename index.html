@@ -207,12 +207,12 @@ textarea{resize:vertical;min-height:110px;line-height:1.6}
     <!-- INTRODUCTION -->
     <div class="slabel">Introduction</div>
     <div class="card">
-      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.75rem;line-height:1.7">
-        <em>Conform&#233;ment &#224; votre demande,</em> <span style="color:var(--text);font-size:.85rem">&#8594; compl&#233;tez librement ci-dessous</span>
-      </p>
       <div class="field">
-        <label>Suite de l&#39;introduction</label>
-        <textarea id="cr-intro-libre" rows="3" placeholder="notre &#233;quipe technique a r&#233;alis&#233; en date du {{DATE}}, un diagnostic concernant un probl&#232;me de VMC dans le logement n&#176;11 de type T3."></textarea>
+        <textarea id="cr-intro-libre" rows="3" placeholder="D&#233;crivez librement l&#39;introduction du compte rendu&#8230;"></textarea>
+        <div class="btn-row" style="margin-top:.5rem">
+          <button class="btn-voice" id="voice-btn-intro" data-secid="intro" style="padding:.3rem .7rem;font-size:.75rem">&#127908; <span id="voice-lbl-intro">Dicter</span></button>
+          <span id="voice-status-intro" style="font-size:.72rem;color:var(--muted)"></span>
+        </div>
       </div>
     </div>
 
@@ -750,7 +750,9 @@ function attachVoiceListeners() {
   document.querySelectorAll('[data-secid]').forEach(function(btn){
     btn.onclick = null;
     btn.addEventListener('click', function(){
-      toggleVoiceSection(btn.getAttribute('data-secid'));
+      var sid=btn.getAttribute('data-secid');
+      if(sid==='intro') toggleVoiceGeneric('cr-intro-libre','intro');
+      else toggleVoiceSection(sid);
     });
   });
   document.querySelectorAll('[data-cusid]').forEach(function(btn){
@@ -789,6 +791,27 @@ function updateDateDisplay() {
   }
 }
 
+function toggleVoiceGeneric(fieldId, voiceKey){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+  if(!SR){alert('Dictée vocale non disponible. Utilisez Chrome ou Edge.');return;}
+  var bid='voice-btn-'+voiceKey, lid='voice-lbl-'+voiceKey, sid='voice-status-'+voiceKey;
+  if(voices[voiceKey]){voices[voiceKey].stop();voices[voiceKey]=null;return;}
+  var r=new SR();
+  r.lang='fr-FR';r.interimResults=true;r.continuous=true;
+  voices[voiceKey]=r;
+  r.onresult=function(e){
+    var interim='';
+    for(var i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal){var ta=document.getElementById(fieldId);if(ta)ta.value+=(ta.value&&!ta.value.endsWith(' ')?' ':'')+e.results[i][0].transcript;}
+      else interim+=e.results[i][0].transcript;
+    }
+    var s=document.getElementById(sid);if(s)s.textContent=interim?'…'+interim:'';
+  };
+  r.onstart=function(){var b=document.getElementById(bid),l=document.getElementById(lid),s=document.getElementById(sid);if(b)b.classList.add('rec');if(l)l.textContent='Arrêter';if(s)s.textContent='Écoute…';};
+  r.onend=function(){voices[voiceKey]=null;var b=document.getElementById(bid),l=document.getElementById(lid),s=document.getElementById(sid);if(b)b.classList.remove('rec');if(l)l.textContent='Dicter';if(s)s.textContent='';};
+  r.onerror=function(e){voices[voiceKey]=null;var b=document.getElementById(bid),l=document.getElementById(lid);if(b)b.classList.remove('rec');if(l)l.textContent='Dicter';if(e.error==='not-allowed')alert('Accès micro refusé.');};
+  try{r.start();}catch(err){voices[voiceKey]=null;}
+}
 function toggleVoiceSection(secId) {
   var tid = 'cr-sec-'+secId;
   var bid = 'voice-btn-'+secId;
@@ -895,7 +918,7 @@ async function crGenerate(){
   promptParts.push('ADRESSE : '+adresse);
   promptParts.push('DATE : '+date);
   var introLibrePDF=document.getElementById('cr-intro-libre');
-  if(introLibrePDF&&introLibrePDF.value.trim())promptParts.push('INTRO : Conformément '+introLibrePDF.value.trim());
+  if(introLibrePDF&&introLibrePDF.value.trim())promptParts.push('INTRO : Conformément à votre demande, '+introLibrePDF.value.trim());
   if(constatSections.length>0){
     promptParts.push('CONSTAT :');
     constatSections.forEach(function(s){promptParts.push('['+s.section+'] '+s.texte);});
@@ -1107,15 +1130,12 @@ async function crDownloadPDF(){
   // Phrase "Conformément..." avec les vraies valeurs des champs
   var introLibreEl=document.getElementById('cr-intro-libre');
   var introLibre=introLibreEl?introLibreEl.value.trim():'';
+  // Introduction libre
   doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(0,0,0);
-  var conformPhrase='Conformément à votre demande, '+(introLibre||'notre équipe technique a réalisé en date du '+dateStr+'.');
-  var conformLines=doc.splitTextToSize(conformPhrase,CW);
-  conformLines.forEach(function(l){if(y>275){doc.addPage();drawHeader(doc);drawFooter(doc);y=52;}doc.text(l,ML,y);y+=5.5;});
-  y+=4;
-
-  var introSuite='Lors de cette intervention, nous avons pu constater les \u00e9l\u00e9ments suivants\u00a0:';
-  var suiteLines=doc.splitTextToSize(introSuite,CW);
-  suiteLines.forEach(function(l){if(y>275){doc.addPage();drawHeader(doc);drawFooter(doc);y=52;}doc.text(l,ML,y);y+=5.5;});
+  if(introLibre){
+    var introLibreLines=doc.splitTextToSize(introLibre,CW);
+    introLibreLines.forEach(function(l){if(y>275){doc.addPage();drawHeader(doc);drawFooter(doc);y=52;}doc.text(l,ML,y);y+=5.5;});
+    y+=4;
 
   drawFooter(doc);
 
@@ -1251,7 +1271,7 @@ async function crDownloadPDF(){
     doc.text('Page '+p,W-MR,292,{align:'right'});
   }
 
-  var fname='CR_'+adresse.replace(/[\s,]+/g,'_').substring(0,30)+'_'+dateVal+'.pdf';
+  var fname='CR-'+(adresse||'document').replace(/[\s,]+/g,'-').replace(/[^a-zA-Z0-9\-_\u00C0-\u017E]/g,'').substring(0,50)+'.pdf';
   doc.save(fname);
 }
 
@@ -1412,6 +1432,8 @@ async function dvDownloadPDF(){
   doc.text(SOCIETE.decennale+' '+SOCIETE.tel+' / '+SOCIETE.mail,W/2,292,{align:'center'});
 
   doc.save('DEVIS_'+client.replace(/\s+/g,'_')+'_'+date+'.pdf');
+}
+
 }
 </script>
 </body>
