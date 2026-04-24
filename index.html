@@ -514,14 +514,22 @@ function removeLogo(){
   document.getElementById('logo-preview-wrap').style.display='none';
   document.getElementById('logo-input').value='';
 }
+function safeLS(key,val){try{localStorage.setItem(key,val);}catch(e){console.warn('localStorage plein:',key);}}
 function saveSettings(){
   var k=document.getElementById('api-key').value.trim();
-  if(k){localStorage.setItem('cae_apikey',k);document.getElementById('key-saved').style.display='block';}
-  if(logoDataURL){localStorage.setItem('cae_logo',logoDataURL);}
-
-  localStorage.setItem('cae_excr',JSON.stringify(exCR));
-  localStorage.setItem('cae_exdv',JSON.stringify(exDV));
-  closeSettings();toast('Sauvegard\u00e9 \u2713');
+  if(k){safeLS('cae_apikey',k);document.getElementById('key-saved').style.display='block';}
+  // Logo : sauvegarder seulement si < 150KB
+  if(logoDataURL){
+    if(logoDataURL.length<150000){safeLS('cae_logo',logoDataURL);}
+    else{toast('Logo trop lourd pour être sauvegardé — restockez un PNG plus léger.');}
+  }
+  // Exemples : sauvegarder sans les b64 si trop lourd
+  try{
+    var exCRLight=exCR.map(function(f){return{name:f.name,mime:f.mime,b64:f.b64?f.b64.slice(0,500)+'...':''};});
+    safeLS('cae_excr',JSON.stringify(exCR.length>0?exCR:[]));
+    safeLS('cae_exdv',JSON.stringify(exDV.length>0?exDV:[]));
+  }catch(e){}
+  closeSettings();toast('Sauvegardé ✓');
 }
 function toast(msg){
   var t=document.createElement('div');t.textContent=msg;
@@ -623,28 +631,35 @@ function toDataURL(file){
   });
 }
 async function callClaude(key,system,content){
-  console.log('[Claude] Envoi requête...');
-  var res=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'x-api-key':key,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({model:'claude-opus-4-5',max_tokens:2500,system:system,messages:[{role:'user',content:content}]})
-  });
-  console.log('[Claude] Status:', res.status);
-  if(!res.ok){
-    var errBody=await res.text();
-    console.error('[Claude] Erreur body:', errBody);
-    var errJson={};try{errJson=JSON.parse(errBody);}catch(e){}
-    throw new Error(errJson.error&&errJson.error.message?errJson.error.message:'Erreur API '+res.status+' — '+errBody.slice(0,200));
+  var attempts=0;
+  while(attempts<3){
+    attempts++;
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:'claude-opus-4-5',max_tokens:2500,system:system,messages:[{role:'user',content:content}]})
+    });
+    if(res.status===429){
+      // Rate limit - attendre et réessayer
+      var wait=attempts*3000;
+      document.getElementById('cr-ai-txt')?document.getElementById('cr-ai-txt').textContent='Limite API atteinte, nouvelle tentative dans '+Math.round(wait/1000)+'s...':null;
+      await new Promise(function(r){setTimeout(r,wait);});
+      continue;
+    }
+    if(!res.ok){
+      var errBody=await res.text();
+      var errJson={};try{errJson=JSON.parse(errBody);}catch(e){}
+      throw new Error(errJson.error&&errJson.error.message?errJson.error.message:'Erreur API '+res.status);
+    }
+    var data=await res.json();
+    return data.content.map(function(b){return b.text||'';}).join('');
   }
-  var data=await res.json();
-  var text=data.content.map(function(b){return b.text||'';}).join('');
-  console.log('[Claude] Réponse reçue, longueur:', text.length, '— début:', text.slice(0,100));
-  return text;
+  throw new Error('Limite API d\'Anthropic atteinte (429). Attendez quelques minutes et réessayez.');
 }
 
 // ── CR : SECTIONS CONFIG ──
@@ -839,7 +854,7 @@ async function crGenerate(){
   var adresse=document.getElementById('cr-client').value.trim()||'Adresse non pr\u00e9cis\u00e9e';
   var date=document.getElementById('cr-date').value;
   var typeLabel=getCRTypeLabel();
-  var num=document.getElementById('cr-num').value.trim();
+  var numEl=document.getElementById('cr-num');var num=numEl?numEl.value.trim():'';
 
     // Collecter les sections remplies
   var constatSections=[];
@@ -986,7 +1001,7 @@ async function crDownloadPDF(){
   var W=210,ML=20,MR=20,CW=170;
   var adresse=document.getElementById('cr-client').value.trim()||'';
   var dateVal=document.getElementById('cr-date').value;
-  var num=document.getElementById('cr-num').value.trim();
+  var numEl=document.getElementById('cr-num');var num=numEl?numEl.value.trim():'';
   var _typeKey=document.getElementById('cr-type').value;
   var _typeMap={'diagnostic':'Compte Rendu du Diagnostic','maintenance':'Compte Rendu de Maintenance','depannage':'Compte Rendu de D\u00e9pannage','installation':'Compte Rendu d\'Installation','mise_en_service':'Compte Rendu de Mise en Service'};
   var titreDoc=_typeKey==='autre'?'Compte Rendu \u2013 '+getCRTypeLabel():(_typeMap[_typeKey]||'Compte Rendu d\'Intervention');
