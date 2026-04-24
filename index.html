@@ -895,7 +895,7 @@ async function crGenerate(){
   promptParts.push('ADRESSE : '+adresse);
   promptParts.push('DATE : '+date);
   var introLibrePDF=document.getElementById('cr-intro-libre');
-  if(introLibrePDF&&introLibrePDF.value.trim())promptParts.push('INTRO : Conformément à votre demande, '+introLibrePDF.value.trim());
+  if(introLibrePDF&&introLibrePDF.value.trim())promptParts.push('INTRO : Conformément '+introLibrePDF.value.trim());
   if(constatSections.length>0){
     promptParts.push('CONSTAT :');
     constatSections.forEach(function(s){promptParts.push('['+s.section+'] '+s.texte);});
